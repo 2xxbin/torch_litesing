@@ -3,5 +3,7 @@ __pycache__
 
 data/preprocessed/*
 data/raw/*
+!data/preprocessed/.gitkeep
+!data/raw/.gitkeep
 
 temp
