@@ -1,2 +1,7 @@
 .venv
 __pycache__
+
+data/preprocessed/*
+data/raw/*
+
+temp
