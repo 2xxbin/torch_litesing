@@ -1,6 +1,32 @@
 import torch
 import torch.nn as nn
 
+
+"""
+┌─────────────────────── ConditionPredictor ───────────────────────┐
+│                                 │                                │
+│                                 │                                │
+│                      ┌── FeatureProcessor ──┐                    │
+│                      │     Conv + ReLu      │                    │
+│                      │     LN + Dropout     │                    │
+│                      │     Conv + ReLu      │                    │
+│                      │     LN + Dropout     │                    │
+│                      └──────────────────────┘                    │
+│                                 │                                │
+│             ┌───────────────────┼───────────────────┐            │
+│             │                   │                   │            │
+│      ┌ SubPredictor ┐   ┌ SubPredictor ┐    ┌ SubPredictor ┐     │
+│      │    Linear    │   │    Linear    │    │    Linear    │     │
+│      │   segmoid    |   |   segmoid    |    |              |     │
+│      └──────────────┘   └──────────────┘    └──────────────┘     │
+│             │                   │                   │            │
+│           Energy               V/UV            Pitch Curve       │
+│          [B, T, 1]           [B, T, 1]          [B, T, 1]        │
+│            0 ~ 1               0 ~ 1                             │
+│                                                                  │
+└──────────────────────────────────────────────────────────────────┘
+"""
+
 class Transpose(nn.Module):
     def __init__(self, dim1, dim2):
         super().__init__()
@@ -29,7 +55,6 @@ class FeatureProcessor(nn.Module):
         )
 
     def forward(self, x):
-        # x: [B, T, D] -> [B, D, T]
         return self.net(x)
 
 
