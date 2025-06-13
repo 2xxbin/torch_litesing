@@ -5,7 +5,7 @@ import torch.nn as nn
 ┌───────────────────────────── WaveNetModule ──────────────────────────────┐
 │                               Dilated Conv                               │
 │                                    │                                     │
-│   ┌─────────────────────WaveNetBlock (x N blocks) ───────────────────┐   │
+│   ┌──────────────── WaveNetBlock (loop num_layers) ──────────────────┐   │
 │   │                                │                                 │   │
 │   │                   ┌────────────┼───────────────┐                 │   │
 │   │                   │      Dilated Conv    input_conv              │   │
