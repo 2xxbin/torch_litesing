@@ -1,13 +1,13 @@
-import os
-import numpy as np
-import soundfile as sf
 from scipy.signal import resample_poly
-import pyworld as pw
-import pysptk
-import librosa
+import soundfile as sf
 from tqdm import tqdm
-import random
+import pyworld as pw
+import numpy as np
 import tempfile
+import librosa
+import pysptk
+import random
+import os
 
 # --------- setting -----------
 DATA_FOLDER_NAME = "ritsu"
@@ -22,6 +22,7 @@ ALPHA = 0.455
 FFT_LEN = 1024
 F0_MIN = 40
 F0_MAX = 1100
+PREPROCESS_FOLDER_LIST = ['mgc','bap','f0','vuv','phone','note', 'energy']
 
 current_folder = os.path.dirname(__file__)
 raw_folder = os.path.join(current_folder, 'data', "raw", DATA_FOLDER_NAME)
@@ -30,6 +31,8 @@ wav_folder = os.path.join(raw_folder, 'wav')
 lab_folder = os.path.join(raw_folder, 'lab')
 train_folder = os.path.join(preprocessed_folder, 'train')
 validation_folder = os.path.join(preprocessed_folder, "validation")
+
+all_phone = []
 
 def ensure_dirs(*dirs):
     for d in dirs:
@@ -85,39 +88,52 @@ def extract_features(x, fs):
     ap = pw.d4c(x, f0, t, fs, fft_size=FFT_LEN)
     mgc = pysptk.sp2mc(sp, order=MGC_DIM-1, alpha=ALPHA)
     bap = pw.code_aperiodicity(ap, fs)
+    if bap.shape[1] > BAP_DIM:
+        bap = bap[:, :BAP_DIM]
     vuv = (f0 > 0).astype(np.float32)
     logf0 = np.log(f0 + 1e-8)
     logf0[f0 == 0] = 0
-    return mgc, bap, logf0, vuv, f0
+    hop_length = int(SR * HOP_TIME_MS / 1000)
+    rms = librosa.feature.rms(y=x, frame_length=FFT_LEN, hop_length=hop_length)
+    rms = rms.squeeze()
+    return mgc, bap, logf0, vuv, f0, rms
 
-def extract_midi_and_dur(lab, midi_pitch, time_step):
-    midi_seq, dur_seq, phone_seq = [], [], []
+def extract_midi_and_dur_framewise(lab, midi_pitch, time_step, num_frames):
+    # 프레임 단위 라벨 시퀀스 생성 (T, )
+    midi_seq = np.full((num_frames,), -1, dtype=np.int32)
+    phone_seq = np.zeros((num_frames,), dtype=np.int8)
     for s_sec, e_sec, ph in lab:
         s_idx = int(np.floor(s_sec / time_step))
         e_idx = int(np.ceil(e_sec / time_step))
-        phone_seq.append(ph)
-        dur_seq.append(e_sec - s_sec)
+        if e_idx > num_frames:
+            e_idx = num_frames
+        if s_idx >= e_idx:
+            continue
+
+        if not ph in all_phone: all_phone.append(ph)
+        ph_idx = all_phone.index(ph)
+        phone_seq[s_idx:e_idx] = ph_idx
         if ph in REST_NOTES:
-            midi_seq.append(-1)
+            midi_seq[s_idx:e_idx] = -1
         else:
             cur_pitch = midi_pitch[s_idx:e_idx]
             cur_pitch = cur_pitch[cur_pitch > 0]
             if cur_pitch.size > 0:
                 counts = np.bincount(np.round(cur_pitch).astype(np.int64))
                 midi_num = counts.argmax()
-                midi_seq.append(midi_num)
+                midi_seq[s_idx:e_idx] = midi_num
             else:
-                midi_seq.append(-1)
-    return midi_seq, dur_seq, phone_seq
+                midi_seq[s_idx:e_idx] = -1
+    return midi_seq.astype(np.float32), phone_seq.astype(np.float32)
 
-def save_features(out_folder_dict, basename, mgc, bap, logf0, vuv, phone_seq, midi_seq, dur_seq):
+def save_features(out_folder_dict, basename, mgc, bap, logf0, vuv, phone_seq, midi_seq, energy):
     np.save(os.path.join(out_folder_dict['mgc'],  basename + "_mgc.npy"), mgc)
     np.save(os.path.join(out_folder_dict['bap'],  basename + "_bap.npy"), bap)
     np.save(os.path.join(out_folder_dict['f0'],   basename + "_f0.npy"), logf0)
     np.save(os.path.join(out_folder_dict['vuv'],  basename + "_vuv.npy"), vuv)
     np.save(os.path.join(out_folder_dict['phone'],basename + "_phone.npy"), phone_seq)
     np.save(os.path.join(out_folder_dict['note'], basename + "_note.npy"), midi_seq)
-    np.save(os.path.join(out_folder_dict['dur'],  basename + "_dur.npy"), dur_seq)
+    np.save(os.path.join(out_folder_dict['energy'], basename + "_energy.npy"), energy)
 
 def process_and_save(wav_list, temp_wav_dir, temp_lab_dir, out_folder_dict):
     for wav_name in tqdm(wav_list):
@@ -126,16 +142,17 @@ def process_and_save(wav_list, temp_wav_dir, temp_lab_dir, out_folder_dict):
         lab_path = os.path.join(temp_lab_dir, basename + ".lab")
 
         x, fs = sf.read(wav_path)
-        mgc, bap, logf0, vuv, rawf0 = extract_features(x, fs)
+        mgc, bap, logf0, vuv, rawf0, energy = extract_features(x, fs)
 
         midi_pitch = np.zeros_like(rawf0)
         midi_pitch[rawf0 > 0] = librosa.hz_to_midi(rawf0[rawf0 > 0])
         time_step = HOP_TIME_MS / 1000
 
         lab = parse_lab(lab_path)
-        midi_seq, dur_seq, phone_seq = extract_midi_and_dur(lab, midi_pitch, time_step)
+        num_frames = mgc.shape[0]
+        midi_seq, phone_seq = extract_midi_and_dur_framewise(lab, midi_pitch, time_step, num_frames)
 
-        save_features(out_folder_dict, basename, mgc, bap, logf0, vuv, phone_seq, midi_seq, dur_seq)
+        save_features(out_folder_dict, basename, mgc, bap, logf0, vuv, phone_seq, midi_seq, energy)
 
 def main():
     with tempfile.TemporaryDirectory() as tempdir:
@@ -143,8 +160,8 @@ def main():
         temp_lab_dir = os.path.join(tempdir, "lab")
         ensure_dirs(tempdir, temp_wav_dir, temp_lab_dir)
 
-        train_dirs = {k: os.path.join(train_folder, k) for k in ['mgc','bap','f0','vuv','phone','note','dur']}
-        val_dirs   = {k: os.path.join(validation_folder, k) for k in ['mgc','bap','f0','vuv','phone','note','dur']}
+        train_dirs = {k: os.path.join(train_folder, k) for k in PREPROCESS_FOLDER_LIST}
+        val_dirs   = {k: os.path.join(validation_folder, k) for k in PREPROCESS_FOLDER_LIST}
         ensure_dirs(preprocessed_folder, train_folder, validation_folder, *train_dirs.values(), *val_dirs.values())
 
         # 1. split audio & lab
@@ -167,6 +184,9 @@ def main():
         process_and_save(train_wavs, temp_wav_dir, temp_lab_dir, train_dirs)
         print("save validation data features...")
         process_and_save(val_wavs, temp_wav_dir, temp_lab_dir, val_dirs)
+
+        print("save all phoneme list...")
+        np.save(os.path.join(preprocessed_folder, "all_phone.npy"), all_phone)
 
 if __name__ == "__main__":
     main()
