@@ -1,0 +1,21 @@
+encoder:
+  channels: 128
+  skip_channels: 128
+  kernel_size: 3
+  num_layers: 2
+
+decoder:
+  channels: 128
+  skip_channels: 128
+  kernel_size: 3
+  num_layers: 4
+
+predictor:
+  input_dim: 128
+  hidden_dim: 128
+
+discriminator:
+  input_dim: 128
+  hidden_dim: 128
+  kernel_size: 3
+  num_block: 3
