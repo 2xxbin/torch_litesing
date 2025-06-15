@@ -1,21 +1,39 @@
-encoder:
+encoder_wavenet:
+  embedding_dim: 128
   channels: 128
-  skip_channels: 128
   kernel_size: 3
-  num_layers: 2
+  dilation_base: 3
+  num_layers: 12
 
-decoder:
+decoder_wavenet:
   channels: 128
-  skip_channels: 128
   kernel_size: 3
-  num_layers: 4
-
-predictor:
-  input_dim: 128
-  hidden_dim: 128
+  dilation_base: 3
+  num_layers: 12
 
 discriminator:
-  input_dim: 128
-  hidden_dim: 128
+  channels: 128
   kernel_size: 3
-  num_block: 3
+  stride: 2
+  num_blocks: 4
+  activation: leakyrelu
+  batch_norm: true
+
+condition_predictor:
+  input_dim: 512
+  hidden_dim: 64
+  kernel_size: 3
+  dropout: 0.1
+
+train:
+  batch_size: 32
+  learning_rate: 0.0001
+  optimizer: Adam
+  adam_beta1: 0.5
+  adam_beta2: 0.999
+  lr_scheduler: halve_every_10_epochs
+  total_steps: 56000
+  loss_weights:
+    wgan: 0.0001
+    mse: 1.0
+    consistency: 0.01
